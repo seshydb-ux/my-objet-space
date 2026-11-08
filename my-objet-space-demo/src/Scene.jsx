@@ -145,7 +145,7 @@ function EmptyRoomInteraction({ onSelect, children }) {
   )
 }
 
-function SelectionAnchorReporter({ instance, onAnchorChange }) {
+function SelectionAnchorReporter({ instance, anchorHeight, onAnchorChange }) {
   const { camera, size } = useThree()
   const callback = useRef(onAnchorChange)
   const last = useRef(null)
@@ -165,7 +165,7 @@ function SelectionAnchorReporter({ instance, onAnchorChange }) {
     if (!instance || !product) {
       next = { x: 0, y: 0, visible: false, width: size.width, height: size.height }
     } else {
-      point.current.set(instance.position.x, product.height + 0.16, instance.position.z).project(camera)
+      point.current.set(instance.position.x, (anchorHeight ?? product.height) + 0.16, instance.position.z).project(camera)
       const x = (point.current.x * 0.5 + 0.5) * size.width
       const y = (-point.current.y * 0.5 + 0.5) * size.height
       const visible = Number.isFinite(x)
@@ -262,6 +262,15 @@ function SceneContent(props) {
   const fogNear = Math.max(9, sceneSpan * 1.5)
   const fogFar = Math.max(20, sceneSpan * 4)
   const shadowExtent = Math.max(5, sceneSpan * 0.9)
+  const selectedInstance = props.products.find((instance) => instance.id === props.selectedId) ?? null
+  const stackId = selectedInstance?.stackId
+  const stackMembers = stackId ? props.products.filter((instance) => instance.stackId === stackId) : []
+  const stackDimensions = stackMembers.length === 2 ? {
+    width: Math.max(...stackMembers.map((instance) => PRODUCT_BY_ID[instance.productId].width)),
+    height: stackMembers.reduce((sum, instance) => sum + PRODUCT_BY_ID[instance.productId].height, 0),
+    depth: Math.max(...stackMembers.map((instance) => PRODUCT_BY_ID[instance.productId].depth)),
+    specVerified: true,
+  } : null
   return (
     <>
       <color attach="background" args={['#ebe7df']} />
@@ -290,7 +299,10 @@ function SceneContent(props) {
           key={instance.id}
           instance={instance}
           collision={props.collisions[instance.id]}
-          selected={props.selectedId === instance.id}
+          selected={props.selectedId === instance.id || Boolean(stackId && instance.stackId === stackId)}
+          primarySelected={props.selectedId === instance.id}
+          elevation={instance.stackRole === 'top' ? PRODUCT_BY_ID.washer.height : 0}
+          stackDimensions={instance.stackRole === 'base' && instance.stackId === stackId ? stackDimensions : null}
           dimensionsVisible={props.dimensionsVisible ?? true}
           onSelect={props.onSelect}
           onMove={props.onMove}
@@ -301,7 +313,8 @@ function SceneContent(props) {
       ))}
       <ContactShadows position={[0, 0.012, 0]} opacity={0.27} scale={Math.max(11, sceneSpan * 2.15)} blur={2.5} far={Math.max(4.5, roomHeight * 1.8)} />
       <SelectionAnchorReporter
-        instance={props.products.find((instance) => instance.id === props.selectedId) ?? null}
+        instance={selectedInstance}
+        anchorHeight={stackDimensions?.height}
         onAnchorChange={props.onAnchorChange}
       />
       <CanvasMissGestureTracker gesture={props.canvasMissGesture} />

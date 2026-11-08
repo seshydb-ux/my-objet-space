@@ -4,6 +4,7 @@ import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { FURNITURE } from './layout.js'
 import { DEFAULT_ROOM, openingPlacement, outerWallSegments, roomFloorPoints } from './roomGeometry.js'
+import ScanRoomDecor from './ScanRoomDecor.jsx'
 
 const WALL_THICKNESS = 0.1
 const WALL_OUTSET = WALL_THICKNESS / 2
@@ -44,11 +45,11 @@ function Floor({ room }) {
   return <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><meshStandardMaterial color="#d7bea0" roughness={0.88} side={THREE.DoubleSide} /></mesh>
 }
 
-function WallPanel({ width, height, position, rotation = [0, 0, 0], color = '#f2eee7', opacity = 1, cutawayTest }) {
+function WallPanel({ width, height, position, rotation = [0, 0, 0], color = '#f2eee7', opacity = 1, cutawayTest, cutawayOpacity = 0.14 }) {
   const material = useRef()
   useFrame(({ camera }, delta) => {
     if (!material.current || !cutawayTest) return
-    const target = cutawayTest(camera) ? 0.14 : 1
+    const target = cutawayTest(camera) ? cutawayOpacity : 1
     material.current.opacity = THREE.MathUtils.damp(material.current.opacity, target, 10, delta)
     const shouldWriteDepth = target > 0.5
     if (material.current.depthWrite !== shouldWriteDepth) {
@@ -60,8 +61,7 @@ function WallPanel({ width, height, position, rotation = [0, 0, 0], color = '#f2
   return <mesh position={position} rotation={rotation} receiveShadow><boxGeometry args={[width, height, WALL_THICKNESS]} /><meshStandardMaterial ref={material} color={color} roughness={0.92} transparent={Boolean(cutawayTest) || opacity < 1} opacity={opacity} depthWrite={opacity > 0.5} /></mesh>
 }
 
-function openingBox(room, type) {
-  const opening = room[type]
+function openingBox(room, type, opening = room[type]) {
   const placement = openingPlacement(room, opening)
   if (!placement.segment) return null
   if (type === 'door') return { center: placement.absolute, width: 0.92, bottom: 0, top: Math.min(2.04, room.height - 0.08) }
@@ -70,7 +70,15 @@ function openingBox(room, type) {
 }
 
 function wallCells(segment, room) {
-  const openings = ['door', 'window'].filter((type) => room[type]?.wall === segment.wall).map((type) => openingBox(room, type)).filter(Boolean)
+  const openingSpecs = [
+    { type: 'door', opening: room.door },
+    { type: 'window', opening: room.window },
+    ...(room.windows ?? []).map((opening) => ({ type: 'window', opening })),
+  ]
+  const openings = openingSpecs
+    .filter(({ opening }) => opening?.wall === segment.wall)
+    .map(({ type, opening }) => openingBox(room, type, opening))
+    .filter(Boolean)
   const along = [segment.start, segment.end]
   const vertical = [0, room.height]
   openings.forEach((opening) => {
@@ -117,21 +125,44 @@ function OuterWalls({ room }) {
     const basePosition = segment.axis === 'x' ? [center, y, segment.fixed] : [segment.fixed, y, center]
     const offset = outwardOffset(segment)
     const position = basePosition.map((value, axis) => value + offset[axis])
-    return <WallPanel key={`${segment.key}-${index}`} width={cell.end - cell.start} height={cell.top - cell.bottom} position={position} rotation={segment.axis === 'x' ? [0, 0, 0] : [0, Math.PI / 2, 0]} color={segment.wall === 'left' ? '#f7f4ee' : '#f2eee7'} cutawayTest={cutawayTest(segment)} />
+    const color = room.source === 'scan-demo' || room.layout === 'two-room'
+      ? (segment.wall === 'left' ? '#e9e1d5' : '#ded2c2')
+      : (segment.wall === 'left' ? '#f7f4ee' : '#f2eee7')
+    return <WallPanel key={`${segment.key}-${index}`} width={cell.end - cell.start} height={cell.top - cell.bottom} position={position} rotation={segment.axis === 'x' ? [0, 0, 0] : [0, Math.PI / 2, 0]} color={color} cutawayTest={cutawayTest(segment)} />
   }))}</>
 }
 
-function PartitionWall({ partition, height }) {
+function PartitionDoor({ partition, height }) {
+  if (!partition.gapWidth || !partition.hasDoor) return null
+  const doorHeight = Math.min(2.04, height - 0.08)
+  const gapStart = partition.gapCenterZ - partition.gapWidth / 2
+  const frameColor = '#aa9277'
+  return <group>
+    <WallPanel width={partition.gapWidth} height={height - doorHeight} position={[partition.x, doorHeight + (height - doorHeight) / 2, partition.gapCenterZ]} rotation={[0, Math.PI / 2, 0]} color="#e2d8ca" />
+    {[-1, 1].map((side) => <mesh key={side} position={[partition.x + 0.012, doorHeight / 2, partition.gapCenterZ + side * partition.gapWidth / 2]} castShadow>
+      <boxGeometry args={[0.075, doorHeight, 0.055]} /><meshStandardMaterial color={frameColor} roughness={0.8} />
+    </mesh>)}
+    <mesh position={[partition.x + 0.012, doorHeight, partition.gapCenterZ]} castShadow><boxGeometry args={[0.075, 0.07, partition.gapWidth + 0.07]} /><meshStandardMaterial color={frameColor} roughness={0.8} /></mesh>
+    <group position={[partition.x, 0, gapStart + 0.04]} rotation={[0, -Math.PI / 2.25, 0]}>
+      <mesh position={[0, doorHeight / 2, partition.gapWidth * 0.43]} castShadow><boxGeometry args={[0.045, doorHeight - 0.06, partition.gapWidth * 0.86]} /><meshStandardMaterial color="#d0b89a" roughness={0.86} /></mesh>
+      <mesh position={[0.04, doorHeight * 0.52, partition.gapWidth * 0.72]}><sphereGeometry args={[0.028, 14, 14]} /><meshStandardMaterial color="#78634d" metalness={0.4} roughness={0.42} /></mesh>
+    </group>
+  </group>
+}
+
+function PartitionWall({ partition, height, room }) {
   const length = partition.endZ - partition.startZ
   if (length <= 0) return null
-  if (!partition.gapWidth) return <WallPanel width={length} height={height} position={[partition.x, height / 2, (partition.startZ + partition.endZ) / 2]} rotation={[0, Math.PI / 2, 0]} color="#eee9e1" />
+  const cutawayTest = room.source === 'scan-demo' || room.layout === 'two-room' ? (camera) => camera.position.x > partition.x : undefined
+  if (!partition.gapWidth) return <WallPanel width={length} height={height} position={[partition.x, height / 2, (partition.startZ + partition.endZ) / 2]} rotation={[0, Math.PI / 2, 0]} color="#eee9e1" cutawayTest={cutawayTest} cutawayOpacity={0.46} />
   const gapStart = Math.max(partition.startZ, partition.gapCenterZ - partition.gapWidth / 2)
   const gapEnd = Math.min(partition.endZ, partition.gapCenterZ + partition.gapWidth / 2)
   const first = gapStart - partition.startZ
   const second = partition.endZ - gapEnd
   return <>
-    <WallPanel width={first} height={height} position={[partition.x, height / 2, partition.startZ + first / 2]} rotation={[0, Math.PI / 2, 0]} color="#eee9e1" />
-    <WallPanel width={second} height={height} position={[partition.x, height / 2, gapEnd + second / 2]} rotation={[0, Math.PI / 2, 0]} color="#eee9e1" />
+    <WallPanel width={first} height={height} position={[partition.x, height / 2, partition.startZ + first / 2]} rotation={[0, Math.PI / 2, 0]} color="#eee9e1" cutawayTest={cutawayTest} cutawayOpacity={0.46} />
+    <WallPanel width={second} height={height} position={[partition.x, height / 2, gapEnd + second / 2]} rotation={[0, Math.PI / 2, 0]} color="#eee9e1" cutawayTest={cutawayTest} cutawayOpacity={0.46} />
+    <PartitionDoor partition={partition} height={height} />
   </>
 }
 
@@ -146,15 +177,30 @@ function openingTransform(room, opening) {
 }
 
 function Door({ room }) {
+  const group = useRef()
   const { position, rotation, facing } = openingTransform(room, room.door)
   const height = Math.min(2.04, room.height - 0.08)
   const wallCenter = -facing * WALL_OUTSET
-  return <group position={position} rotation={rotation}><mesh position={[0, height / 2, wallCenter]}><boxGeometry args={[0.88, height, 0.055]} /><meshStandardMaterial color="#cbb393" roughness={0.82} /></mesh><mesh position={[0.3, height * 0.52, wallCenter + facing * 0.055]}><sphereGeometry args={[0.035, 18, 18]} /><meshStandardMaterial color="#7e6a54" metalness={0.45} /></mesh></group>
+  useFrame(({ camera }) => {
+    if (!group.current) return
+    if (room.source !== 'scan-demo' && room.layout !== 'two-room') {
+      group.current.visible = true
+      return
+    }
+    const horizontalDistance = Math.hypot(camera.position.x, camera.position.z)
+    const top = camera.position.y > Math.max(horizontalDistance * 1.8, room.height * 2.2)
+    const wall = room.door.wall
+    const outside = wall === 'back' ? camera.position.z < -room.depth / 2
+      : wall === 'front' ? camera.position.z > room.depth / 2
+        : wall === 'left' ? camera.position.x < -room.width / 2 : camera.position.x > room.width / 2
+    group.current.visible = !top && !outside
+  })
+  return <group ref={group} position={position} rotation={rotation}><mesh position={[0, height / 2, wallCenter]}><boxGeometry args={[0.88, height, 0.055]} /><meshStandardMaterial color="#cbb393" roughness={0.82} /></mesh><mesh position={[0.3, height * 0.52, wallCenter + facing * 0.055]}><sphereGeometry args={[0.035, 18, 18]} /><meshStandardMaterial color="#7e6a54" metalness={0.45} /></mesh></group>
 }
 
-function Window({ room }) {
-  const { position, rotation, facing } = openingTransform(room, room.window)
-  const box = openingBox(room, 'window')
+function Window({ room, opening = room.window }) {
+  const { position, rotation, facing } = openingTransform(room, opening)
+  const box = openingBox(room, 'window', opening)
   const height = box.top - box.bottom
   const wallCenter = -facing * WALL_OUTSET
   return <group position={[position[0], box.bottom + height / 2, position[2]]} rotation={rotation}>
@@ -168,12 +214,12 @@ function Window({ room }) {
 function RoomShell({ room }) {
   const original = room.showFurniture && room.width === DEFAULT_ROOM.width && room.depth === DEFAULT_ROOM.depth
   return <group>
-    <Floor room={room} /><OuterWalls room={room} />{(room.partitions ?? []).map((partition, index) => <PartitionWall key={`${partition.x}-${index}`} partition={partition} height={room.height} />)}<Door room={room} /><Window room={room} />
+    <Floor room={room} /><OuterWalls room={room} />{(room.partitions ?? []).map((partition, index) => <PartitionWall key={`${partition.x}-${index}`} partition={partition} height={room.height} room={room} />)}<Door room={room} /><Window room={room} />{(room.windows ?? []).map((opening, index) => <Window key={`${opening.wall}-${opening.offset}-${index}`} room={room} opening={opening} />)}
     {original && <mesh position={[0.35, 0.007, -0.15]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[2.05, 1.18]} /><meshStandardMaterial color="#ede6da" roughness={1} /></mesh>}
     {original && <group position={[0.45, 1.72, -room.depth / 2 + 0.08]}><mesh><circleGeometry args={[0.34, 48]} /><meshStandardMaterial color="#d8c7ad" /></mesh><mesh position={[0, 0, -0.008]}><circleGeometry args={[0.29, 48]} /><meshStandardMaterial color="#f8f5ef" /></mesh></group>}
   </group>
 }
 
 export default function Room({ room = DEFAULT_ROOM }) {
-  return <group><RoomShell room={room} />{room.showFurniture && FURNITURE.map((item) => item.id === 'bed' ? <Bed key={item.id} item={item} /> : item.id === 'wardrobe' ? <Wardrobe key={item.id} item={item} /> : <Desk key={item.id} item={item} />)}</group>
+  return <group><RoomShell room={room} />{(room.source === 'scan-demo' || room.layout === 'two-room') && <ScanRoomDecor room={room} />}{room.showFurniture && FURNITURE.map((item) => item.id === 'bed' ? <Bed key={item.id} item={item} /> : item.id === 'wardrobe' ? <Wardrobe key={item.id} item={item} /> : <Desk key={item.id} item={item} />)}</group>
 }

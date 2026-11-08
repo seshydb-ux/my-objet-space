@@ -30,14 +30,17 @@ export const ROOM_TEMPLATES = Object.freeze([
     ]),
   }),
   Object.freeze({
-    shape: 'l', width: 7.2, depth: 5.2, height: 2.7,
-    door: Object.freeze({ wall: 'front', offset: 0.78 }),
-    window: Object.freeze({ wall: 'left', offset: 0.32 }),
+    shape: 'rectangle', layout: 'two-room', width: 6.2, depth: 5.2, height: 2.4,
+    door: Object.freeze({ wall: 'front', offset: 0.84 }),
+    window: Object.freeze({ wall: 'back', offset: 0.72 }),
+    windows: Object.freeze([Object.freeze({ wall: 'left', offset: 0.28 })]),
     showFurniture: false,
-    label: '투룸 개념 템플릿',
-    description: '출입구가 있는 구획벽으로 두 개의 방 영역 표현',
+    label: '투룸 시연 템플릿',
+    description: '침실·거실/주방·가전 존을 내부 벽과 문으로 구분',
+    recommended: true,
+    zones: Object.freeze({ bedroomSide: 'left', appliance: Object.freeze({ x: 2.25, z: -1.75 }) }),
     partitions: Object.freeze([
-      Object.freeze({ x: -0.6, startZ: -2.6, endZ: 2.6, gapCenterZ: 1.25, gapWidth: 0.95 }),
+      Object.freeze({ x: -0.55, startZ: -2.6, endZ: 2.6, gapCenterZ: 1.35, gapWidth: 0.95, label: '침실 벽', hasDoor: true }),
     ]),
   }),
 ])
@@ -111,7 +114,13 @@ export function roomValidationErrors(room) {
   const within = (metres, limits) => metres * 1000 >= limits.min && metres * 1000 <= limits.max
   if (!within(room.width, ROOM_LIMITS_MM.width) || !within(room.depth, ROOM_LIMITS_MM.depth) || !within(room.height, ROOM_LIMITS_MM.height)) errors.push('가로·세로·높이의 입력 범위를 확인해 주세요.')
   if (room.shape === 'l' && (room.width < 3.6 || room.depth < 3.6)) errors.push('L자형은 가로와 세로가 각각 3,600mm 이상이어야 합니다.')
-  const specs = [{ name: '문', value: room.door, width: 0.92 }, { name: '창문', value: room.window, width: 1.25 }]
+  const extraWindows = room.windows == null ? [] : Array.isArray(room.windows) ? room.windows : []
+  if (room.windows != null && !Array.isArray(room.windows)) errors.push('추가 창문 데이터가 올바르지 않습니다.')
+  const specs = [
+    { name: '문', value: room.door, width: 0.92 },
+    { name: '창문', value: room.window, width: 1.25 },
+    ...extraWindows.map((window, index) => ({ name: `추가 창문 ${index + 1}`, value: window, width: 1.25 })),
+  ]
   for (const spec of specs) {
     const opening = spec.value
     if (!opening || !['front', 'back', 'left', 'right'].includes(opening.wall) || !Number.isFinite(opening.offset)) {
@@ -123,10 +132,18 @@ export function roomValidationErrors(room) {
     const clearance = spec.width / 2 + 0.08
     if (!placement.segment || placement.absolute - placement.segment.start < clearance || placement.segment.end - placement.absolute < clearance) errors.push(`${spec.name}이 벽 구간 또는 L자형 모서리 밖에 있습니다.`)
   }
-  if (room.door && room.window && room.door.wall === room.window.wall) {
-    const door = openingPlacement(room, room.door)
-    const window = openingPlacement(room, room.window)
-    if (Number.isFinite(door.absolute) && Number.isFinite(window.absolute) && Math.abs(door.absolute - window.absolute) < (0.92 + 1.25) / 2 + 0.12) errors.push('문과 창문이 겹칩니다. 위치를 더 떨어뜨려 주세요.')
+  for (let firstIndex = 0; firstIndex < specs.length; firstIndex++) {
+    for (let secondIndex = firstIndex + 1; secondIndex < specs.length; secondIndex++) {
+      const first = specs[firstIndex]
+      const second = specs[secondIndex]
+      if (!first.value || !second.value || first.value.wall !== second.value.wall) continue
+      const firstPlacement = openingPlacement(room, first.value)
+      const secondPlacement = openingPlacement(room, second.value)
+      if (Number.isFinite(firstPlacement.absolute) && Number.isFinite(secondPlacement.absolute)
+        && Math.abs(firstPlacement.absolute - secondPlacement.absolute) < (first.width + second.width) / 2 + 0.12) {
+        errors.push(`${first.name}과 ${second.name}이 겹칩니다. 위치를 더 떨어뜨려 주세요.`)
+      }
+    }
   }
   const partitions = room.partitions ?? []
   if (!Array.isArray(partitions)) {
@@ -147,6 +164,8 @@ export function cloneRoom(room) {
     ...room,
     door: { ...room.door },
     window: { ...room.window },
+    windows: (Array.isArray(room.windows) ? room.windows : []).map((window) => ({ ...window })),
+    zones: room.zones ? { ...room.zones, appliance: room.zones.appliance ? { ...room.zones.appliance } : undefined } : undefined,
     partitions: (room.partitions ?? []).map((partition) => ({ ...partition })),
   }
 }

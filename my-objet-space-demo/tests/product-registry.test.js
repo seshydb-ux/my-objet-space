@@ -62,7 +62,7 @@ test('호환 alias와 meter 단위는 registry 값에서 파생된다', () => {
 })
 
 test('기존 데모 가구는 비검증·비구매 제품으로 registry에 남는다', () => {
-  for (const id of ['bed-product', 'sofa-product', 'desk-product']) {
+  for (const id of ['bed-product', 'sofa-product', 'desk-product', 'coffee-table-product', 'kitchen-counter-product']) {
     const product = PRODUCT_BY_ID[id]
     assert.equal(product.specVerified, false)
     assert.equal(product.purchasable, false)
@@ -71,6 +71,16 @@ test('기존 데모 가구는 비검증·비구매 제품으로 registry에 남�
     assert.ok(Number.isInteger(product.heightMm))
     assert.ok(Number.isInteger(product.depthMm))
   }
-  assert.equal(PRODUCT_REGISTRY.length, 7)
-  assert.equal(PRODUCT_CATALOG.length, 7)
+  assert.equal(PRODUCT_REGISTRY.length, 9)
+  assert.equal(PRODUCT_CATALOG.length, 9)
+})
+
+test('간이 주방 카운터는 판매 제품이 아닌 시연용 가구다', () => {
+  const kitchen = PRODUCT_BY_ID['kitchen-counter-product']
+  assert.equal(kitchen.model3d, 'kitchen-counter')
+  assert.equal(kitchen.specVerified, false)
+  assert.equal(kitchen.purchasable, false)
+  assert.equal(kitchen.officialProductUrl, null)
+  assert.equal(kitchen.price, null)
+  assert.equal(kitchen.priceLabel, '판매 제품 아님')
 })

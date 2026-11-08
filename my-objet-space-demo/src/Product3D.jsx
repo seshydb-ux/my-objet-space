@@ -19,7 +19,7 @@ function SelectionOutline({ product }) {
   )
 }
 
-export default function Product3D({ instance, collision, selected, dimensionsVisible = true, onSelect, onMove, onDraggingChange, controls, room }) {
+export default function Product3D({ instance, collision, selected, primarySelected = selected, elevation = 0, stackDimensions = null, dimensionsVisible = true, onSelect, onMove, onDraggingChange, controls, room }) {
   const dragging = useRef(false)
   const gesture = useRef({ active: false, pointerId: null, start: null })
   const grabOffset = useRef(null)
@@ -111,7 +111,7 @@ export default function Product3D({ instance, collision, selected, dimensionsVis
 
   return (
     <group
-      position={[instance.position.x, 0, instance.position.z]}
+      position={[instance.position.x, elevation, instance.position.z]}
       rotation={[0, ((instance.angleDegrees ?? instance.rotation * 90) * Math.PI) / 180, 0]}
       onPointerDown={startGesture}
       onPointerMove={moveGesture}
@@ -123,11 +123,12 @@ export default function Product3D({ instance, collision, selected, dimensionsVis
       {selected && (
         <>
           <SelectionOutline product={product} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 0]} raycast={() => null}>
+          {elevation === 0 && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 0]} raycast={() => null}>
             <ringGeometry args={[Math.max(product.width, product.depth) * 0.58, Math.max(product.width, product.depth) * 0.62, 48]} />
             <meshBasicMaterial color="#e0ad22" transparent opacity={0.78} depthWrite={false} />
-          </mesh>
-          {dimensionsVisible && <ProductDimensions product={product} />}
+          </mesh>}
+          {dimensionsVisible && primarySelected && <ProductDimensions product={product} labelPrefix={instance.stackId ? product.shortName : ''} />}
+          {dimensionsVisible && stackDimensions && <ProductDimensions product={stackDimensions} labelPrefix="조합" lineOffset={0.28} showDoorGuide={false} />}
         </>
       )}
     </group>

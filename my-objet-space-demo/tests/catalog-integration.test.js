@@ -110,7 +110,7 @@ for (const productId of LG_PRODUCT_IDS) {
 }
 
 test('일반 가구는 장바구니 추가를 거절하고 기존 배열을 보존한다', () => {
-  for (const productId of ['bed-product', 'sofa-product', 'desk-product']) {
+  for (const productId of ['bed-product', 'sofa-product', 'desk-product', 'coffee-table-product', 'kitchen-counter-product']) {
     const cart = [{ productId: 'dryer', quantity: 1 }]
     const next = addCartItem(cart, productId)
     assert.equal(next, cart)

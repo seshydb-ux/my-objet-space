@@ -13,12 +13,13 @@ function Icon({ name }) {
     rotate: <><path d="M19 8a7 7 0 1 0 .3 7M19 8V4m0 4h-4" /></>,
     move: <><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" /></>,
     dimensions: <><path d="M4 16 16 4l4 4L8 20l-4-4Z" /><path d="m11 9 2 2m-5 1 2 2m4-8 2 2" /></>,
+    stack: <><rect x="6" y="3" width="12" height="8" rx="1" /><rect x="6" y="13" width="12" height="8" rx="1" /><circle cx="12" cy="7" r="2" /><circle cx="12" cy="17" r="2" /></>,
     delete: <><path d="M5 7h14M9 7V4h6v3m2 0-1 13H8L7 7m3 4v5m4-5v5" /></>,
   }
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>
 }
 
-export default function FloatingToolbar({ anchor, product, angle, cartQuantity, rotationOpen, moveMode, dimensionsVisible, onToggleDimensions, onToggleRotation, onToggleMove, onSetAngle, onNudge, onCart, onDelete }) {
+export default function FloatingToolbar({ anchor, product, angle, cartQuantity, rotationOpen, moveMode, dimensionsVisible, stackable, stacked, onToggleStack, onToggleDimensions, onToggleRotation, onToggleMove, onSetAngle, onNudge, onCart, onDelete }) {
   const toolbarRef = useRef(null)
   const [box, setBox] = useState({ width: 300, height: 74 })
 
@@ -65,7 +66,8 @@ export default function FloatingToolbar({ anchor, product, angle, cartQuantity, 
         <button type="button" onClick={onToggleRotation} aria-pressed={rotationOpen} aria-expanded={rotationOpen} aria-label="회전 도구"><Icon name="rotate" /><span>회전</span></button>
         <button type="button" onClick={onToggleMove} onKeyDown={handleMoveKey} aria-pressed={moveMode} aria-label="이동 도구"><Icon name="move" /><span>이동</span></button>
         <button type="button" onClick={onToggleDimensions} aria-pressed={dimensionsVisible} aria-label="치수 보기"><Icon name="dimensions" /><span>치수 보기</span></button>
-        <button type="button" onClick={onDelete} aria-label={`${product.shortName} 배치 삭제`}><Icon name="delete" /><span>삭제</span></button>
+        {stackable && <button type="button" onClick={onToggleStack} aria-label={stacked ? '직렬 배치 해제' : product.id === 'washer' ? '건조기 직렬 배치' : '세탁기 직렬 배치'}><Icon name="stack" /><span>{stacked ? '직렬 해제' : '직렬 배치'}</span></button>}
+        <button type="button" onClick={onDelete} aria-label={stacked ? '직렬 조합 배치 삭제' : `${product.shortName} 배치 삭제`}><Icon name="delete" /><span>삭제</span></button>
       </div>
       {moveMode && <p className="floating-move-hint">제품을 드래그하거나 이동 버튼에서 방향키로 옮기세요.</p>}
     </div>

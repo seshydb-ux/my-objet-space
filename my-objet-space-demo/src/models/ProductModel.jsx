@@ -1,5 +1,5 @@
 import { DryerModel, FridgeModel, StylerModel, WasherModel } from './ApplianceModels.jsx'
-import { BedModel, DeskModel, SofaModel } from './FurnitureModels.jsx'
+import { BedModel, CoffeeTableModel, DeskModel, KitchenCounterModel, SofaModel } from './FurnitureModels.jsx'
 
 const MODEL_COMPONENTS = {
   dryer: DryerModel,
@@ -9,6 +9,8 @@ const MODEL_COMPONENTS = {
   bed: BedModel,
   sofa: SofaModel,
   desk: DeskModel,
+  'coffee-table': CoffeeTableModel,
+  'kitchen-counter': KitchenCounterModel,
 }
 
 const LEGACY_MODEL_TYPES = {

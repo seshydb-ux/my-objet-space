@@ -131,18 +131,39 @@ function overlapsPartition(polygon, room) {
   ))
 }
 
+export function hasInteriorPartitionCollision(instance, room) {
+  return overlapsPartition(productPolygon(instance), room)
+}
+
+function sameStack(first, second) {
+  return Boolean(first.stackId) && first.stackId === second.stackId
+}
+
+function subjectMembers(instance, instances) {
+  if (!instance.stackId) return [instance]
+  const members = instances
+    .filter((candidate) => candidate.stackId === instance.stackId)
+    .map((candidate) => candidate.id === instance.id ? instance : candidate)
+  return members.some((candidate) => candidate.id === instance.id)
+    ? members
+    : [instance, ...members]
+}
+
 export function getProductCollision(instance, instances, room) {
   const activeRoom = room ?? { ...ROOM, shape: 'rectangle' }
-  const polygon = productPolygon(instance)
-  const wall = outsideRoom(polygon, activeRoom)
+  const members = subjectMembers(instance, instances)
+  const polygons = members.map(productPolygon)
+  const wall = polygons.some((polygon) => outsideRoom(polygon, activeRoom)
     || overlapsLShapeNotch(polygon, activeRoom)
-    || overlapsPartition(polygon, activeRoom)
+    || overlapsPartition(polygon, activeRoom))
   const includeFixedFurniture = room == null || room.showFurniture === true
   const fixedItem = includeFixedFurniture
-    ? FURNITURE.find((item) => polygonsOverlap(polygon, axisAlignedPolygon(item)))
+    ? FURNITURE.find((item) => polygons.some((polygon) => polygonsOverlap(polygon, axisAlignedPolygon(item))))
     : null
   const other = instances.find((candidate) => (
-    candidate.id !== instance.id && polygonsOverlap(polygon, productPolygon(candidate))
+    candidate.id !== instance.id
+    && !sameStack(instance, candidate)
+    && polygons.some((polygon) => polygonsOverlap(polygon, productPolygon(candidate)))
   ))
 
   return {

@@ -106,37 +106,38 @@ function DoorOpenDepthGuide({ product }) {
   )
 }
 
-export default function ProductDimensions({ product }) {
+export default function ProductDimensions({ product, labelPrefix = '', lineOffset = 0, showDoorGuide = true }) {
   const widthHalf = product.width / 2
   const depthHalf = product.depth / 2
   const groundY = 0.025
-  const widthZ = depthHalf + 0.14
-  const depthX = widthHalf + 0.14
-  const heightX = -widthHalf - 0.14
+  const widthZ = depthHalf + 0.14 + lineOffset
+  const depthX = widthHalf + 0.14 + lineOffset
+  const heightX = -widthHalf - 0.14 - lineOffset
   const labelSuffix = product.specVerified ? '' : ' · 데모 규격'
+  const prefix = labelPrefix ? `${labelPrefix} ` : ''
 
   return (
     <group renderOrder={20}>
-      <DoorOpenDepthGuide product={product} />
+      {showDoorGuide && <DoorOpenDepthGuide product={product} />}
       <GuideLine points={[[-widthHalf, groundY, widthZ], [widthHalf, groundY, widthZ]]} />
       <GuideLine points={[[ -widthHalf, groundY, depthHalf + 0.04], [-widthHalf, groundY, widthZ + 0.045]]} />
       <GuideLine points={[[ widthHalf, groundY, depthHalf + 0.04], [widthHalf, groundY, widthZ + 0.045]]} />
       <DimensionLabel position={[0, groundY + 0.04, widthZ + 0.095]} anchor={[0.5, 1]}>
-        가로 {Math.round(product.width * 1000)} mm{labelSuffix}
+        {prefix}가로 {Math.round(product.width * 1000)} mm{labelSuffix}
       </DimensionLabel>
 
       <GuideLine points={[[depthX, groundY, -depthHalf], [depthX, groundY, depthHalf]]} />
       <GuideLine points={[[widthHalf + 0.04, groundY, -depthHalf], [depthX + 0.045, groundY, -depthHalf]]} />
       <GuideLine points={[[widthHalf + 0.04, groundY, depthHalf], [depthX + 0.045, groundY, depthHalf]]} />
       <DimensionLabel position={[depthX + 0.09, groundY + 0.04, 0]} anchor={[0, 0.5]}>
-        깊이 {Math.round(product.depth * 1000)} mm{labelSuffix}
+        {prefix}깊이 {Math.round(product.depth * 1000)} mm{labelSuffix}
       </DimensionLabel>
 
       <GuideLine points={[[heightX, 0, depthHalf + 0.02], [heightX, product.height, depthHalf + 0.02]]} />
       <GuideLine points={[[heightX - 0.045, 0, depthHalf + 0.02], [-widthHalf - 0.04, 0, depthHalf + 0.02]]} />
       <GuideLine points={[[heightX - 0.045, product.height, depthHalf + 0.02], [-widthHalf - 0.04, product.height, depthHalf + 0.02]]} />
       <DimensionLabel position={[heightX - 0.08, product.height / 2, 0]} anchor={[1, 0.5]}>
-        높이 {Math.round(product.height * 1000)} mm{labelSuffix}
+        {prefix}높이 {Math.round(product.height * 1000)} mm{labelSuffix}
       </DimensionLabel>
     </group>
   )

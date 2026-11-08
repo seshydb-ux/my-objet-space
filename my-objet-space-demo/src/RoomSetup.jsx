@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { cloneRoom, DEFAULT_ROOM, isValidRoom, roomArea, roomValidationErrors, ROOM_LIMITS_MM, ROOM_TEMPLATES } from './roomGeometry.js'
+import { cloneRoom, isValidRoom, roomArea, roomValidationErrors, ROOM_LIMITS_MM, ROOM_TEMPLATES } from './roomGeometry.js'
+import RoomScan from './RoomScan.jsx'
 import './roomSetup.css'
 
 const WALLS = [
@@ -16,7 +17,6 @@ function MenuIcon({ type }) {
 
 export default function RoomSetup({ onCreate, onCancel }) {
   const [mode, setMode] = useState('home')
-  const [scanNotice, setScanNotice] = useState(false)
   const [form, setForm] = useState({
     shape: 'rectangle', width: '5500', depth: '3600', height: '2650',
     doorWall: 'front', doorOffset: '72', windowWall: 'back', windowOffset: '22',
@@ -43,6 +43,8 @@ export default function RoomSetup({ onCreate, onCancel }) {
     if (valid) onCreate(room)
   }
 
+  if (mode === 'scan') return <RoomScan onCreate={onCreate} onBack={() => setMode('home')} />
+
   return (
     <main className="room-setup">
       <header className="room-setup__header">
@@ -64,8 +66,8 @@ export default function RoomSetup({ onCreate, onCancel }) {
           <button type="button" onClick={() => setMode('custom')}>
             <MenuIcon type="measure" /><span><b>직접 공간 만들기</b><small>방 형태와 실측 크기 입력</small></span><i>→</i>
           </button>
-          <button type="button" onClick={() => setScanNotice(true)}>
-            <MenuIcon type="scan" /><span><b>내 공간 스캔하기</b><small>스마트폰 카메라 · LiDAR 연동</small></span><em>준비 중</em>
+          <button type="button" onClick={() => setMode('scan')}>
+            <MenuIcon type="scan" /><span><b>내 공간 스캔하기</b><small>스마트폰으로 공간을 둘러보고 3D 공간을 만들어 보세요.</small></span><i>→</i>
           </button>
         </section>
       )}
@@ -77,7 +79,8 @@ export default function RoomSetup({ onCreate, onCancel }) {
           <div className="room-setup__templates">
             {ROOM_TEMPLATES.map((template, index) => (
               <button type="button" key={template.label} onClick={() => chooseTemplate(template)}>
-                <span className={`room-setup__floorplan room-setup__floorplan--${template.shape}`} aria-hidden="true" />
+                <span className={`room-setup__floorplan room-setup__floorplan--${template.shape} ${template.layout === 'two-room' ? 'room-setup__floorplan--two-room' : ''}`} aria-hidden="true" />
+                {template.recommended && <span className="room-setup__recommend">가전 배치 시연 추천</span>}
                 <small>{index === 0 ? 'ORIGINAL' : 'CONCEPT'}</small>
                 <b>{template.label}</b>
                 <p>{template.description ?? '기존 가구가 배치된 6평 원룸'}</p>
@@ -109,7 +112,6 @@ export default function RoomSetup({ onCreate, onCancel }) {
         </section>
       )}
 
-      {scanNotice && <div className="room-setup__modal" role="dialog" aria-modal="true" aria-labelledby="scan-title"><div><span className="room-setup__scan-mark" aria-hidden="true" /><h2 id="scan-title">공간 스캔은 준비 중이에요</h2><p>향후 스마트폰 카메라 또는 LiDAR 측정 결과를 같은 공간 데이터 구조로 변환해 3D 편집기로 연결할 예정입니다.</p><button type="button" onClick={() => setScanNotice(false)}>확인</button></div></div>}
     </main>
   )
 }

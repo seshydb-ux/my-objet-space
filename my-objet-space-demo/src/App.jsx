@@ -3,31 +3,38 @@ import Scene from './Scene.jsx'
 import RoomSetup from './RoomSetup.jsx'
 import FloatingToolbar from './FloatingToolbar.jsx'
 import { addCartItem, cartSummary, changeCartQuantity, removeCartItem } from './cart.js'
-import { getProductCollision, getSceneCollisions } from './productCollision.js'
+import { getProductCollision, getSceneCollisions, hasInteriorPartitionCollision } from './productCollision.js'
 import { INITIAL_PRODUCTS, PRESENTATION_MARGIN, PRODUCT_BY_ID, PRODUCT_CATALOG } from './layout.js'
+import { roomArea } from './roomGeometry.js'
+import { furnishScannedRoom } from './scanFurnishing.js'
+import { canMoveGroupWithoutCrossingPartitions, canRotateGroupWithoutCrossingPartitions, deleteStackGroup, getStackDimensions, getStackMembers, isStackableProduct, moveStackGroup, relocateGroupsFromInteriorWalls, rotateStackGroup, stackWasherDryer, unstackWasherDryer } from './stacking.js'
 import './editor-enhancements.css'
 
-const PRODUCT_GLYPHS = { dryer: '◉', 'bed-product': '▰', 'sofa-product': '▱', 'desk-product': '⌑' }
+const PRODUCT_GLYPHS = { dryer: '◉', 'bed-product': '▰', 'sofa-product': '▱', 'desk-product': '⌑', 'coffee-table-product': '▭', 'kitchen-counter-product': '▤' }
 
 function initialProductsForRoom(room) {
+  if (room.source === 'scan-demo' || room.layout === 'two-room') return furnishScannedRoom(room)
   return INITIAL_PRODUCTS.map((item) => ({
     ...item,
     angleDegrees: 0,
-    position: room.showFurniture ? { ...item.position } : { x: 0, z: 0 },
+    position: room.showFurniture ? { ...item.position } : findSpawnPosition(item.productId, [], room) ?? { x: 0, z: 0 },
   }))
 }
 
 function findSpawnPosition(productId, products, room) {
   // Search near the middle first; leave a colliding placement visible if the room is full.
   const fractions = [0, -0.16, 0.16, -0.32, 0.32, -0.42, 0.42]
+  let fallback = null
   for (const z of fractions) {
     for (const x of fractions) {
       const position = { x: room.width * x, z: room.depth * z }
       const candidate = { id: '__candidate__', productId, position, rotation: 0, angleDegrees: 0 }
+      if (hasInteriorPartitionCollision(candidate, room)) continue
+      fallback ??= position
       if (!getProductCollision(candidate, products, room).colliding) return position
     }
   }
-  return { x: 0, z: 0 }
+  return fallback
 }
 
 function hasFinalConsonant(word) {
@@ -128,55 +135,94 @@ export default function App() {
   const [rotationOpen, setRotationOpen] = useState(false)
   const [moveMode, setMoveMode] = useState(false)
   const [dimensionsVisible, setDimensionsVisible] = useState(true)
+  const [actionNotice, setActionNotice] = useState('')
   const nextId = useRef(1)
   const cartRef = useRef(null)
   const selectedIdRef = useRef(selectedId)
+  const productsRef = useRef(products)
   selectedIdRef.current = selectedId
+  productsRef.current = products
   const collisions = useMemo(() => getSceneCollisions(products, room ?? undefined), [products, room])
   const cartQuantity = useMemo(() => cartSummary(cart, PRODUCT_BY_ID).quantity, [cart])
   const selected = products.find((item) => item.id === selectedId) ?? null
   const selectedProduct = selected ? PRODUCT_BY_ID[selected.productId] : null
   const selectedCollision = selected ? collisions[selected.id] : null
   const selectedAngle = selected ? (selected.angleDegrees ?? selected.rotation * 90) : 0
+  const selectedStack = selected?.stackId ? getStackMembers(products, selected) : []
+  const selectedStackDimensions = selected?.stackId ? getStackDimensions(products, selected) : null
+  const stackable = selectedProduct ? isStackableProduct(selectedProduct.id) : false
 
   const selectProduct = useCallback((id) => {
     if (selectedIdRef.current !== id) {
       setRotationOpen(false)
       setMoveMode(false)
       setAnchor(null)
+      setActionNotice('')
     }
     setSelectedId(id)
   }, [])
 
   const createRoom = (nextRoom) => {
+    let roomNotice = ''
     if (!room) {
       const initial = initialProductsForRoom(nextRoom)
       setProducts(initial)
-      selectProduct(initial[0]?.id ?? null)
+      selectProduct(nextRoom.source === 'scan-demo' || nextRoom.layout === 'two-room' ? null : initial[0]?.id ?? null)
+    } else {
+      const relocation = relocateGroupsFromInteriorWalls(products, nextRoom)
+      if (!relocation.success) {
+        setSetupOpen(false)
+        setActionNotice('새 공간의 내부 벽을 피할 자리가 없어요. 제품을 정리한 뒤 공간을 변경해 주세요.')
+        return
+      }
+      const nextProducts = nextRoom.source === 'scan-demo' || nextRoom.layout === 'two-room'
+        ? furnishScannedRoom(nextRoom, relocation.products) : relocation.products
+      setProducts(nextProducts)
+      if (relocation.movedIds.length) roomNotice = '새 공간의 내부 벽과 겹치는 제품 위치를 조정했어요.'
     }
     setRoom(nextRoom)
     setSetupOpen(false)
     setCameraMode('free')
     setViewResetToken((value) => value + 1)
+    setActionNotice(roomNotice)
   }
 
   const addProduct = (productId) => {
     const position = findSpawnPosition(productId, products, room)
+    if (!position) {
+      setActionNotice('내부 벽을 피해서 제품을 놓을 자리가 없어요. 공간을 정리해 주세요.')
+      return
+    }
     const instance = { id: `${productId}-${nextId.current++}`, productId, position, rotation: 0, angleDegrees: 0 }
     setProducts((items) => [...items, instance]); selectProduct(instance.id)
   }
-  const moveProduct = (id, position) => setProducts((items) => items.map((item) => item.id === id ? { ...item, position } : item))
-  const setSelectedAngle = (angle) => setProducts((items) => items.map((item) => item.id === selectedId ? { ...item, angleDegrees: angle } : item))
-  const rotateSelected = () => setProducts((items) => items.map((item) => item.id === selectedId ? { ...item, angleDegrees: ((item.angleDegrees ?? item.rotation * 90) + 90) % 360 } : item))
+  const moveProduct = (id, position) => {
+    if (!canMoveGroupWithoutCrossingPartitions(productsRef.current, id, position, room)) {
+      setActionNotice('내부 벽은 통과할 수 없어요. 출입구를 통해 이동해 주세요.')
+      return
+    }
+    setActionNotice('')
+    setProducts((items) => canMoveGroupWithoutCrossingPartitions(items, id, position, room) ? moveStackGroup(items, id, position) : items)
+  }
+  const setSelectedAngle = (angle) => {
+    if (!canRotateGroupWithoutCrossingPartitions(productsRef.current, selectedId, angle, room)) {
+      setActionNotice('내부 벽과 겹치지 않도록 제품을 옮긴 뒤 회전해 주세요.')
+      return
+    }
+    setActionNotice('')
+    setProducts((items) => canRotateGroupWithoutCrossingPartitions(items, selectedId, angle, room) ? rotateStackGroup(items, selectedId, angle) : items)
+  }
+  const rotateSelected = () => setSelectedAngle((selectedAngle + 90) % 360)
   const deleteSelected = () => {
     if (!selectedId) return
-    const next = products.filter((item) => item.id !== selectedId)
+    const next = deleteStackGroup(products, selectedId)
     setProducts(next)
     selectProduct(next[0]?.id ?? null)
   }
   const resetSpace = () => {
     setProducts(initialProductsForRoom(room))
-    selectProduct(INITIAL_PRODUCTS[0].id)
+    selectProduct(room.source === 'scan-demo' || room.layout === 'two-room' ? null : INITIAL_PRODUCTS[0].id)
+    setActionNotice('')
   }
   const nudgeSelected = ({ x, z }) => {
     if (!selected) return
@@ -185,6 +231,33 @@ export default function App() {
   }
   const addSelectedToCart = () => {
     if (selectedProduct?.purchasable) setCart((items) => addCartItem(items, selectedProduct.id))
+  }
+  const addStackToCart = () => setCart((items) => selectedStack.reduce((cartItems, member) => addCartItem(cartItems, member.productId), items))
+  const toggleStack = () => {
+    if (!selected || !stackable) return
+    if (selected.stackId) {
+      const result = unstackWasherDryer(products, selectedId, room)
+      if (result.reason === 'no-space') {
+        setActionNotice('직렬 배치를 해제할 자리가 없어요. 주변을 비운 뒤 다시 시도해 주세요.')
+        return
+      }
+      setProducts(result.products)
+      setActionNotice('직렬 배치를 해제했어요. 두 제품을 각각 움직일 수 있습니다.')
+      return
+    }
+    const result = stackWasherDryer(products, selectedId)
+    const members = result.stackId ? getStackMembers(result.products, selectedId) : []
+    const existingPartner = members.find((member) => member.id !== selectedId && products.some((item) => item.id === member.id))
+    if (existingPartner && !canMoveGroupWithoutCrossingPartitions(products, existingPartner.id, selected.position, room)) {
+      setActionNotice('다른 제품이 내부 벽 건너편에 있어요. 출입구를 통해 가까이 옮겨 주세요.')
+      return
+    }
+    if (members.some((member) => hasInteriorPartitionCollision(member, room))) {
+      setActionNotice('내부 벽을 피해서 제품을 옮긴 뒤 직렬 배치해 주세요.')
+      return
+    }
+    setProducts(result.products)
+    setActionNotice('직렬 배치 시연입니다. 실제 설치 호환성은 LG 공식 설치 상담을 통해 확인해 주세요.')
   }
 
   if (setupOpen) return <RoomSetup onCreate={createRoom} onCancel={room ? () => setSetupOpen(false) : undefined} />
@@ -199,7 +272,7 @@ export default function App() {
         <Catalog onAdd={addProduct} onAddCart={(id) => setCart((items) => addCartItem(items, id))} />
         <div className="scene-panel">
           <Scene room={room} cameraMode={cameraMode} products={products} collisions={collisions} selectedId={selectedId} dragging={dragging} resetToken={viewResetToken} dimensionsVisible={dimensionsVisible} onSelect={selectProduct} onMove={moveProduct} onDraggingChange={setDragging} onAnchorChange={setAnchor} />
-          {selectedProduct && <FloatingToolbar anchor={anchor} product={selectedProduct} angle={selectedAngle} cartQuantity={cartQuantity} rotationOpen={rotationOpen} moveMode={moveMode} dimensionsVisible={dimensionsVisible} onToggleDimensions={() => setDimensionsVisible((value) => !value)} onToggleRotation={() => { setRotationOpen((value) => !value); setMoveMode(false) }} onToggleMove={() => { setMoveMode((value) => !value); setRotationOpen(false) }} onSetAngle={setSelectedAngle} onNudge={nudgeSelected} onCart={addSelectedToCart} onDelete={deleteSelected} />}
+          {selectedProduct && <FloatingToolbar anchor={anchor} product={selectedProduct} angle={selectedAngle} cartQuantity={cartQuantity} rotationOpen={rotationOpen} moveMode={moveMode} dimensionsVisible={dimensionsVisible} stackable={stackable} stacked={Boolean(selected?.stackId)} onToggleStack={toggleStack} onToggleDimensions={() => setDimensionsVisible((value) => !value)} onToggleRotation={() => { setRotationOpen((value) => !value); setMoveMode(false) }} onToggleMove={() => { setMoveMode((value) => !value); setRotationOpen(false) }} onSetAngle={setSelectedAngle} onNudge={nudgeSelected} onCart={addSelectedToCart} onDelete={deleteSelected} />}
           <div className="scene-hint" aria-hidden="true"><span>↔</span>{moveMode ? '제품을 드래그해 이동하세요' : selectedProduct ? `${selectedProduct.shortName} 선택됨` : '제품을 선택해 보세요'}</div>
           <div className="view-controls"><span><i className="mouse-icon" /> 드래그: 공간 회전</span><span><i className="wheel-icon" /> 휠: 확대 · 축소</span></div>
           <div className="camera-controls" aria-label="카메라 시점">
@@ -207,13 +280,16 @@ export default function App() {
           </div>
         </div>
         <aside className="control-panel">
+          {room.source === 'scan-demo' && <div className="scan-room-summary" aria-label="스캔된 공간 정보"><strong>스캔된 공간</strong><span>{Number(room.width.toFixed(3))}m × {Number(room.depth.toFixed(3))}m · {roomArea(room).toFixed(1)}㎡</span><small>공간과 가구는 스캔 시연 예시입니다</small></div>}
+          {actionNotice && <p className="stack-notice" role="status">{actionNotice}</p>}
           {selectedProduct ? <>
             <div className="product-heading"><span className="eyebrow">SELECTED OBJECT</span><h2>{selectedProduct.name}</h2><span className="model-name">{selectedProduct.model} · {selectedProduct.color}</span></div>
             <div className={`status-card ${selectedCollision.colliding ? 'status-card--danger' : ''}`} role="status" aria-live="polite"><span className="status-dot" /><div><strong>{selectedCollision.colliding ? overlapMessage(selectedCollision.label) : '겹침 없음'}</strong><p>{selectedCollision.colliding ? '제품을 움직이거나 회전해 보세요.' : '시각적 배치 참고용 상태입니다.'}</p></div></div>
             <div className="spec-grid"><div><span>너비</span><strong>{Math.round(selectedProduct.width * 1000)} mm</strong></div><div><span>높이</span><strong>{Math.round(selectedProduct.height * 1000)} mm</strong></div><div><span>깊이</span><strong>{Math.round(selectedProduct.depth * 1000)} mm</strong></div></div>
+            {selectedStackDimensions && <section className="stack-info" aria-label="직렬 배치 시연 정보"><strong>직렬 배치 시연</strong><p>세탁기 아래 · 건조기 위</p><ul>{selectedStack.map((member) => { const product = PRODUCT_BY_ID[member.productId]; return <li key={member.id}>{product.shortName} {product.widthMm} × {product.heightMm} × {product.depthMm} mm</li> })}</ul><p className="stack-dimensions">조합 외곽 {selectedStackDimensions.widthMm} × {selectedStackDimensions.bodyHeightMm} × {selectedStackDimensions.depthMm} mm</p><p>본체 높이의 합이며 스태킹 키트·설치 부품은 포함하지 않습니다. 실제 호환성 및 설치 가능 여부는 LG 공식 설치 상담으로 확인해 주세요.</p><button type="button" className="stack-action" onClick={addStackToCart}>조합 두 제품 장바구니 담기</button></section>}
             {!selectedProduct.specVerified && <p className="demo-spec-note">가구 규격은 시연을 위한 임시 크기입니다.</p>}
             {selectedProduct.specVerified && <div className="dryer-info product-details"><strong>LG 공식 제품 정보</strong><dl><div><dt>용량</dt><dd>{selectedProduct.capacity}</dd></div><div><dt>색상</dt><dd>{selectedProduct.color}</dd></div><div><dt>도어 열림 시 깊이</dt><dd>{selectedProduct.doorOpenDepthMm == null ? '공식 정보 미확인' : `${selectedProduct.doorOpenDepthMm.toLocaleString('ko-KR')} mm`}</dd></div>{selectedProduct.doorDirection && <div><dt>도어 방향</dt><dd>{selectedProduct.doorDirection}</dd></div>}</dl><p>3D 모델은 실제 규격 비율을 적용한 단순화된 외관입니다.</p><a href={selectedProduct.officialProductUrl} target="_blank" rel="noreferrer">LG 공식 제품 상세 보기 ↗</a></div>}
-            <div className="control-group"><span className="control-label">선택 제품 조작</span><button className="primary-action" type="button" onClick={rotateSelected}><RotateIcon />오른쪽으로 90° 회전<span className="rotation-value">{selectedAngle}°</span></button><button className="free-rotation-toggle" type="button" aria-expanded={rotationOpen} onClick={() => { setRotationOpen((value) => !value); setMoveMode(false) }}>자유 회전 {rotationOpen ? '닫기' : '열기'}</button><button className="free-rotation-toggle" type="button" aria-pressed={dimensionsVisible} onClick={() => setDimensionsVisible((value) => !value)}>치수 {dimensionsVisible ? '숨기기' : '보기'}</button>{rotationOpen && !anchor?.visible && <div className="panel-rotation-fallback"><label className="angle-control"><span>자유 회전 <strong>{selectedAngle}°</strong></span><input type="range" min="0" max="360" step="1" value={selectedAngle} aria-label="제품 자유 회전 각도" aria-valuetext={`${selectedAngle}도`} onChange={(event) => setSelectedAngle(Number(event.target.value))} /></label><div className="floating-rotation__presets">{[0, 90, 180, 270].map((value) => <button type="button" key={value} aria-pressed={selectedAngle === value} onClick={() => setSelectedAngle(value)}>{value}°</button>)}</div></div>}<div className="secondary-actions"><button type="button" onClick={deleteSelected}><TrashIcon />배치 삭제</button>{selectedProduct.purchasable ? <button type="button" onClick={addSelectedToCart}>+ 장바구니 담기</button> : <span className="placement-only-note">공간 배치 전용 가구</span>}</div></div>
+            <div className="control-group"><span className="control-label">선택 제품 조작</span><button className="primary-action" type="button" onClick={rotateSelected}><RotateIcon />오른쪽으로 90° 회전<span className="rotation-value">{selectedAngle}°</span></button><button className="free-rotation-toggle" type="button" aria-expanded={rotationOpen} onClick={() => { setRotationOpen((value) => !value); setMoveMode(false) }}>자유 회전 {rotationOpen ? '닫기' : '열기'}</button><button className="free-rotation-toggle" type="button" aria-pressed={dimensionsVisible} onClick={() => setDimensionsVisible((value) => !value)}>치수 {dimensionsVisible ? '숨기기' : '보기'}</button>{stackable && <button type="button" className="stack-action" onClick={toggleStack}>{selected.stackId ? '직렬 배치 해제' : selected.productId === 'washer' ? '건조기 직렬 배치' : '세탁기 직렬 배치'}</button>}{rotationOpen && !anchor?.visible && <div className="panel-rotation-fallback"><label className="angle-control"><span>자유 회전 <strong>{selectedAngle}°</strong></span><input type="range" min="0" max="360" step="1" value={selectedAngle} aria-label="제품 자유 회전 각도" aria-valuetext={`${selectedAngle}도`} onChange={(event) => setSelectedAngle(Number(event.target.value))} /></label><div className="floating-rotation__presets">{[0, 90, 180, 270].map((value) => <button type="button" key={value} aria-pressed={selectedAngle === value} onClick={() => setSelectedAngle(value)}>{value}°</button>)}</div></div>}<div className="secondary-actions"><button type="button" onClick={deleteSelected}><TrashIcon />{selected.stackId ? '조합 배치 삭제' : '배치 삭제'}</button>{selectedProduct.purchasable ? <button type="button" onClick={addSelectedToCart}>+ 장바구니 담기</button> : <span className="placement-only-note">공간 배치 전용 가구</span>}</div></div>
           </> : <div className="empty-selection"><span>+</span><h2>제품을 선택하세요</h2><p>왼쪽 카탈로그에서 공간에 제품을 추가할 수 있습니다.</p></div>}
           <div className="space-actions"><button type="button" onClick={resetSpace}><ResetIcon />기본 공간 복원</button><button type="button" onClick={() => setViewResetToken((value) => value + 1)}>시점 초기화</button></div>
           <Cart sectionRef={cartRef} cart={cart} onQuantity={(id, delta) => setCart((items) => changeCartQuantity(items, id, delta))} onRemove={(id) => setCart((items) => removeCartItem(items, id))} />
