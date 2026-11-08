@@ -1,0 +1,14 @@
+:root { background: #0c1420; }
+.experience { position: relative; isolation: isolate; min-height: 100svh; color: #f5eee4; }
+.experience-background { position: fixed; z-index: -1; inset: 0; overflow: hidden; pointer-events: none; background: #101724; }
+.experience-background__scene, .experience-background__veil { position: absolute; inset: 0; }
+.experience-background__scene { overflow: hidden; animation: landing-enter .8s ease-out both; }
+.experience-background__travel { position: absolute; left: 50%; top: 50%; width: max(125%, 222.1svh); aspect-ratio: 1672 / 941; transform: translate3d(-50%, calc(-50% + 4svh - var(--building-travel, 0px)), 0); will-change: transform; }
+.experience-background__building { position: absolute; inset: 0; animation: landing-drift 15s ease-in-out infinite alternate; }
+.experience-background__veil { background: #0b1420; opacity: var(--background-dimming, 0); }
+.experience-setup, .experience-editor { position: relative; min-height: 100svh; }
+.experience-editor .app-shell { min-height: 100svh; }
+.experience .education-notice { color: #d0c5b8; border-color: rgba(231, 210, 184, .16); background: rgba(12, 19, 29, .9); }
+.experience .education-notice strong { color: #f4e6d3; }
+@media (max-width: 600px) { .experience-background__travel { left: 58%; } }
+@media (prefers-reduced-motion: reduce) { .experience-background__scene, .experience-background__building { animation: none; } .experience-background__travel { transform: translate3d(-50%, calc(-50% + 4svh), 0); } }

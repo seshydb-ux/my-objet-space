@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { cloneRoom, isValidRoom, roomArea, roomValidationErrors, ROOM_LIMITS_MM, ROOM_TEMPLATES } from './roomGeometry.js'
 import RoomScan from './RoomScan.jsx'
 import './roomSetup.css'
@@ -17,6 +17,8 @@ function MenuIcon({ type }) {
 
 export default function RoomSetup({ onCreate, onCancel }) {
   const [mode, setMode] = useState('home')
+  const homeRef = useRef(null)
+  const detailRef = useRef(null)
   const [form, setForm] = useState({
     shape: 'rectangle', width: '5500', depth: '3600', height: '2650',
     doorWall: 'front', doorOffset: '72', windowWall: 'back', windowOffset: '22',
@@ -43,38 +45,53 @@ export default function RoomSetup({ onCreate, onCancel }) {
     if (valid) onCreate(room)
   }
 
-  if (mode === 'scan') return <RoomScan onCreate={onCreate} onBack={() => setMode('home')} />
+  const scrollTo = (ref) => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+    }))
+  }
+  const openMode = (nextMode) => {
+    setMode(nextMode)
+    scrollTo(detailRef)
+  }
+  const returnHome = () => {
+    setMode('home')
+    scrollTo(homeRef)
+  }
 
   return (
-    <main className="room-setup">
-      <header className="room-setup__header">
-        <div className="room-setup__brand"><span>O</span><strong>My Objet Space</strong></div>
-        {onCancel ? <button className="room-setup__cancel" type="button" onClick={onCancel}>편집으로 돌아가기</button> : <p>공간을 먼저 정하면, 실제 비율에 맞춰 오브제를 배치할 수 있어요.</p>}
-      </header>
+    <div className="room-setup">
+      <section className="room-setup__stage room-setup__stage--home" ref={homeRef}>
+        <header className="room-setup__header">
+          <div className="room-setup__brand"><span>O</span><strong>My Objet Space</strong></div>
+          {onCancel ? <button className="room-setup__cancel" type="button" onClick={onCancel}>편집으로 돌아가기</button> : <p>공간을 먼저 정하면, 실제 비율에 맞춰 오브제를 배치할 수 있어요.</p>}
+        </header>
 
-      <section className="room-setup__hero">
-        <span className="room-setup__eyebrow">START YOUR SPACE</span>
-        <h1>어떤 공간을<br />디자인해 볼까요?</h1>
-        <p>준비된 템플릿을 고르거나 실측 크기로 나만의 방을 만들어 보세요.</p>
-      </section>
+        <div className="room-setup__hero">
+          <span className="room-setup__eyebrow">START YOUR SPACE</span>
+          <h1>내 공간에 건조기를<br />먼저 놓아보세요</h1>
+          <p>방을 선택하고 LG 제품과 가구를 배치해 겹침을 확인한 뒤, 장바구니와 제품 상세에서 구매를 이어가세요.</p>
+        </div>
 
-      {mode === 'home' && (
+        <p className="room-setup__journey">① 공간 선택 <span>→</span> ② 제품 배치 <span>→</span> ③ 겹침 확인 <span>→</span> ④ 장바구니 · 제품 상세</p>
+
         <section className="room-setup__menu" aria-label="공간 시작 방법">
-          <button type="button" onClick={() => setMode('templates')}>
+          <button type="button" onClick={() => openMode('templates')}>
             <MenuIcon type="template" /><span><b>공간 선택하기</b><small>원룸 · 1.5룸 · 투룸 템플릿</small></span><i>→</i>
           </button>
-          <button type="button" onClick={() => setMode('custom')}>
+          <button type="button" onClick={() => openMode('custom')}>
             <MenuIcon type="measure" /><span><b>직접 공간 만들기</b><small>방 형태와 실측 크기 입력</small></span><i>→</i>
           </button>
-          <button type="button" onClick={() => setMode('scan')}>
-            <MenuIcon type="scan" /><span><b>내 공간 스캔하기</b><small>스마트폰으로 공간을 둘러보고 3D 공간을 만들어 보세요.</small></span><i>→</i>
+          <button type="button" onClick={() => openMode('scan')}>
+            <MenuIcon type="scan" /><span><b>내 공간 스캔하기</b><small>카메라 또는 데모로 체험하는 스캔 시뮬레이션</small></span><i>→</i>
           </button>
         </section>
-      )}
+      </section>
 
       {mode === 'templates' && (
-        <section className="room-setup__section">
-          <button className="room-setup__back" type="button" onClick={() => setMode('home')}>← 시작 메뉴</button>
+        <section className="room-setup__stage room-setup__stage--detail room-setup__section" ref={detailRef}>
+          <button className="room-setup__back" type="button" onClick={returnHome}>← 시작 메뉴</button>
           <div className="room-setup__section-title"><h2>공간 템플릿</h2><p>발표용 개략 평면으로, 현장 실측 구조와는 다를 수 있습니다.</p></div>
           <div className="room-setup__templates">
             {ROOM_TEMPLATES.map((template, index) => (
@@ -92,8 +109,8 @@ export default function RoomSetup({ onCreate, onCancel }) {
       )}
 
       {mode === 'custom' && (
-        <section className="room-setup__section room-setup__section--form">
-          <button className="room-setup__back" type="button" onClick={() => setMode('home')}>← 시작 메뉴</button>
+        <section className="room-setup__stage room-setup__stage--detail room-setup__section room-setup__section--form" ref={detailRef}>
+          <button className="room-setup__back" type="button" onClick={returnHome}>← 시작 메뉴</button>
           <div className="room-setup__section-title"><h2>직접 공간 만들기</h2><p>실측값을 mm 단위로 입력해 주세요.</p></div>
           <form className="room-setup__form" onSubmit={submit}>
             <fieldset><legend>방 형태</legend><div className="room-setup__shape-options">
@@ -112,6 +129,12 @@ export default function RoomSetup({ onCreate, onCancel }) {
         </section>
       )}
 
-    </main>
+      {mode === 'scan' && (
+        <section className="room-setup__stage room-setup__stage--detail room-setup__scan" ref={detailRef}>
+          <RoomScan onCreate={onCreate} onBack={returnHome} />
+        </section>
+      )}
+
+    </div>
   )
 }

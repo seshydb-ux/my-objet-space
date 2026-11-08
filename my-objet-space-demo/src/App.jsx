@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Scene from './Scene.jsx'
 import RoomSetup from './RoomSetup.jsx'
+import Landing from './Landing.jsx'
+import ApartmentBackground from './ApartmentBackground.jsx'
 import FloatingToolbar from './FloatingToolbar.jsx'
 import { addCartItem, cartSummary, changeCartQuantity, removeCartItem } from './cart.js'
 import { getProductCollision, getSceneCollisions, hasInteriorPartitionCollision } from './productCollision.js'
@@ -11,6 +13,11 @@ import { canMoveGroupWithoutCrossingPartitions, canRotateGroupWithoutCrossingPar
 import './editor-enhancements.css'
 
 const PRODUCT_GLYPHS = { dryer: '◉', 'bed-product': '▰', 'sofa-product': '▱', 'desk-product': '⌑', 'coffee-table-product': '▭', 'kitchen-counter-product': '▤' }
+
+function scrollToSection(element, block = 'start') {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  element?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block })
+}
 
 function initialProductsForRoom(room) {
   if (room.source === 'scan-demo' || room.layout === 'two-room') return furnishScannedRoom(room)
@@ -67,12 +74,16 @@ function CartIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1.4 10H5.4L4 8Zm4 0 2-4m6 4-2-4M9 12v3m6-3v3" /></svg>
 }
 
+function EducationNotice() {
+  return <footer className="education-notice"><strong>교육용 시안</strong><span>공간 배치 결과는 참고용입니다. 실제 설치 가능 여부는 제품 규격, 반입 경로 및 설치 환경 확인 후 최종 결정됩니다.</span></footer>
+}
+
 function Catalog({ onAdd, onAddCart }) {
   const [category, setCategory] = useState('전체')
   const visibleProducts = PRODUCT_CATALOG.filter((product) => category === '전체' || product.category === category)
   return (
     <aside className="catalog-panel">
-      <div className="panel-title"><span>OBJET COLLECTION &amp; FURNITURE</span><h2>공간에 추가하기</h2><p>제품을 골라 나만의 공간을 완성하세요.</p></div>
+      <div className="panel-title"><span>OBJET COLLECTION &amp; FURNITURE</span><h2>공간에 추가하기</h2><p>LG 제품은 배치하고 장바구니에 담을 수 있어요. 일반 가구는 공간 배치 전용입니다.</p></div>
       <div className="catalog-filters" aria-label="제품 카테고리">
         {['전체', '세탁·건조', '냉장고', '의류관리', '가구'].map((option) => <button type="button" key={option} aria-pressed={category === option} onClick={() => setCategory(option)}>{option}</button>)}
       </div>
@@ -101,7 +112,7 @@ function Cart({ cart, onQuantity, onRemove, sectionRef }) {
   const summary = cartSummary(cart, PRODUCT_BY_ID)
   return (
     <section className="cart-section" aria-label="시연용 장바구니" ref={sectionRef} tabIndex={-1}>
-      <div className="section-heading"><div><span>DEMO CART</span><h3>장바구니</h3></div><b>{summary.quantity}</b></div>
+      <div className="section-heading"><div><span>DEMO CART</span><h3>시연용 장바구니</h3></div><b>{summary.quantity}</b></div>
       {cart.length === 0 ? <p className="empty-cart">카탈로그의 ‘담기’를 눌러<br />제품 구성을 확인해 보세요.</p> : (
         <div className="cart-items">
           {cart.map((item) => {
@@ -124,7 +135,7 @@ function Cart({ cart, onQuantity, onRemove, sectionRef }) {
 
 export default function App() {
   const [room, setRoom] = useState(null)
-  const [setupOpen, setSetupOpen] = useState(true)
+  const [editorScrollRequest, setEditorScrollRequest] = useState(0)
   const [products, setProducts] = useState([])
   const [selectedId, setSelectedId] = useState(INITIAL_PRODUCTS[0].id)
   const [dragging, setDragging] = useState(false)
@@ -138,6 +149,9 @@ export default function App() {
   const [actionNotice, setActionNotice] = useState('')
   const nextId = useRef(1)
   const cartRef = useRef(null)
+  const setupRef = useRef(null)
+  const editorRef = useRef(null)
+  const scenePanelRef = useRef(null)
   const selectedIdRef = useRef(selectedId)
   const productsRef = useRef(products)
   selectedIdRef.current = selectedId
@@ -151,6 +165,22 @@ export default function App() {
   const selectedStack = selected?.stackId ? getStackMembers(products, selected) : []
   const selectedStackDimensions = selected?.stackId ? getStackDimensions(products, selected) : null
   const stackable = selectedProduct ? isStackableProduct(selectedProduct.id) : false
+
+  useEffect(() => {
+    if (!editorScrollRequest) return undefined
+    const frame = window.requestAnimationFrame(() => scrollToSection(editorRef.current))
+    return () => window.cancelAnimationFrame(frame)
+  }, [editorScrollRequest])
+
+  useEffect(() => {
+    const panel = scenePanelRef.current
+    if (!panel) return undefined
+    const keepCanvasWheel = (event) => {
+      if (event.target instanceof HTMLCanvasElement) event.preventDefault()
+    }
+    panel.addEventListener('wheel', keepCanvasWheel, { passive: false })
+    return () => panel.removeEventListener('wheel', keepCanvasWheel)
+  }, [room])
 
   const selectProduct = useCallback((id) => {
     if (selectedIdRef.current !== id) {
@@ -171,8 +201,8 @@ export default function App() {
     } else {
       const relocation = relocateGroupsFromInteriorWalls(products, nextRoom)
       if (!relocation.success) {
-        setSetupOpen(false)
         setActionNotice('새 공간의 내부 벽을 피할 자리가 없어요. 제품을 정리한 뒤 공간을 변경해 주세요.')
+        setEditorScrollRequest((value) => value + 1)
         return
       }
       const nextProducts = nextRoom.source === 'scan-demo' || nextRoom.layout === 'two-room'
@@ -181,7 +211,7 @@ export default function App() {
       if (relocation.movedIds.length) roomNotice = '새 공간의 내부 벽과 겹치는 제품 위치를 조정했어요.'
     }
     setRoom(nextRoom)
-    setSetupOpen(false)
+    setEditorScrollRequest((value) => value + 1)
     setCameraMode('free')
     setViewResetToken((value) => value + 1)
     setActionNotice(roomNotice)
@@ -260,17 +290,23 @@ export default function App() {
     setActionNotice('직렬 배치 시연입니다. 실제 설치 호환성은 LG 공식 설치 상담을 통해 확인해 주세요.')
   }
 
-  if (setupOpen) return <RoomSetup onCreate={createRoom} onCancel={room ? () => setSetupOpen(false) : undefined} />
-
   return (
-    <main className="app-shell">
+    <main className="experience">
+      <ApartmentBackground />
+      <Landing onStart={() => scrollToSection(setupRef.current)} />
+      <div className="experience-setup" ref={setupRef}>
+        <RoomSetup onCreate={createRoom} onCancel={room ? () => scrollToSection(editorRef.current) : undefined} />
+        {!room && <EducationNotice />}
+      </div>
+      {room && <section className="experience-editor" ref={editorRef} aria-label="3D 공간 편집">
+    <div className="app-shell">
       <header className="topbar">
         <div className="brand"><span className="brand-mark">O</span><div><h1>My Objet Space</h1><p>나의 공간에 오브제를 놓아보세요</p></div></div>
-        <div className="header-meta"><button className="change-room" type="button" onClick={() => setSetupOpen(true)}>공간 변경</button><span>{products.length}개 배치됨</span><button className="header-cart" type="button" aria-label={`장바구니 제품 ${cartQuantity}개 보기`} onClick={() => { cartRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); cartRef.current?.focus({ preventScroll: true }) }}><CartIcon /><span>장바구니</span><b aria-hidden="true">{cartQuantity}</b></button><div className="project-chip"><span className="project-chip__dot" />{room.label}</div></div>
+        <div className="header-meta"><button className="change-room" type="button" onClick={() => scrollToSection(setupRef.current)}>공간 변경</button><span>{products.length}개 배치됨</span><button className="header-cart" type="button" aria-label={`장바구니 제품 ${cartQuantity}개 보기`} onClick={() => { scrollToSection(cartRef.current, 'nearest'); cartRef.current?.focus({ preventScroll: true }) }}><CartIcon /><span>장바구니</span><b aria-hidden="true">{cartQuantity}</b></button><div className="project-chip"><span className="project-chip__dot" />{room.label}</div></div>
       </header>
       <section className="workspace workspace--catalog" aria-label="3D 공간 배치 도구">
         <Catalog onAdd={addProduct} onAddCart={(id) => setCart((items) => addCartItem(items, id))} />
-        <div className="scene-panel">
+        <div className="scene-panel" ref={scenePanelRef}>
           <Scene room={room} cameraMode={cameraMode} products={products} collisions={collisions} selectedId={selectedId} dragging={dragging} resetToken={viewResetToken} dimensionsVisible={dimensionsVisible} onSelect={selectProduct} onMove={moveProduct} onDraggingChange={setDragging} onAnchorChange={setAnchor} />
           {selectedProduct && <FloatingToolbar anchor={anchor} product={selectedProduct} angle={selectedAngle} cartQuantity={cartQuantity} rotationOpen={rotationOpen} moveMode={moveMode} dimensionsVisible={dimensionsVisible} stackable={stackable} stacked={Boolean(selected?.stackId)} onToggleStack={toggleStack} onToggleDimensions={() => setDimensionsVisible((value) => !value)} onToggleRotation={() => { setRotationOpen((value) => !value); setMoveMode(false) }} onToggleMove={() => { setMoveMode((value) => !value); setRotationOpen(false) }} onSetAngle={setSelectedAngle} onNudge={nudgeSelected} onCart={addSelectedToCart} onDelete={deleteSelected} />}
           <div className="scene-hint" aria-hidden="true"><span>↔</span>{moveMode ? '제품을 드래그해 이동하세요' : selectedProduct ? `${selectedProduct.shortName} 선택됨` : '제품을 선택해 보세요'}</div>
@@ -280,6 +316,7 @@ export default function App() {
           </div>
         </div>
         <aside className="control-panel">
+          <p className="journey-guide">공간 선택 → 제품 배치 → 겹침 확인 → 장바구니 · 제품 상세</p>
           {room.source === 'scan-demo' && <div className="scan-room-summary" aria-label="스캔된 공간 정보"><strong>스캔된 공간</strong><span>{Number(room.width.toFixed(3))}m × {Number(room.depth.toFixed(3))}m · {roomArea(room).toFixed(1)}㎡</span><small>공간과 가구는 스캔 시연 예시입니다</small></div>}
           {actionNotice && <p className="stack-notice" role="status">{actionNotice}</p>}
           {selectedProduct ? <>
@@ -296,6 +333,9 @@ export default function App() {
           <p className="disclaimer">문 열림 가이드는 공식 깊이의 전방 참고 표시이며 실제 도어 궤적이나 설치 여유 공간이 아닙니다. 겹침 판정은 설치 이격 거리, 전원·배수 및 반입 경로를 확인하지 않으며 실제 설치 가능 여부를 판단하지 않습니다.</p>
         </aside>
       </section>
+      <EducationNotice />
+    </div>
+      </section>}
     </main>
   )
 }

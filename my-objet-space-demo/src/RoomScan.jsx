@@ -50,6 +50,7 @@ export default function RoomScan({ onCreate, onBack }) {
   const [cameraMessage, setCameraMessage] = useState('')
   const [form, setForm] = useState(INITIAL_FORM)
   const videoRef = useRef(null)
+  const pageRef = useRef(null)
   const streamRef = useRef(null)
   const mountedRef = useRef(true)
   const cameraRequestRef = useRef(0)
@@ -106,6 +107,27 @@ export default function RoomScan({ onCreate, onBack }) {
     })
     return () => {
       if (video.srcObject === streamRef.current) video.srcObject = null
+    }
+  }, [cameraStatus, phase])
+
+  useEffect(() => {
+    if (cameraStatus === 'idle' || !pageRef.current) return undefined
+    const stopWhenAway = () => {
+      stopCamera()
+      setPhase('choice')
+      setCameraMessage('스캔 화면을 벗어나 카메라를 종료했어요.')
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) stopWhenAway()
+    })
+    const onVisibilityChange = () => {
+      if (document.hidden) stopWhenAway()
+    }
+    observer.observe(pageRef.current)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [cameraStatus, phase])
 
@@ -173,7 +195,7 @@ export default function RoomScan({ onCreate, onBack }) {
 
   if (phase === 'choice') {
     return (
-      <main className="room-scan-page">
+      <div className="room-scan-page" ref={pageRef}>
         <header className="room-scan-header">
           <button type="button" className="room-scan-back" onClick={goBack} aria-label="이전 화면으로 이동">←</button>
           <span>내 공간 스캔하기</span>
@@ -196,13 +218,13 @@ export default function RoomScan({ onCreate, onBack }) {
           {cameraMessage && <p className="room-scan-camera-message" role="status">{cameraMessage}</p>}
           <p className="room-scan-permission">카메라는 버튼을 누른 경우에만 요청하며, 스캔 화면을 나가면 즉시 종료됩니다.</p>
         </section>
-      </main>
+      </div>
     )
   }
 
   if (phase === 'scanning') {
     return (
-      <main className="room-scan-page scanning-page">
+      <div className="room-scan-page scanning-page" ref={pageRef}>
         <header className="room-scan-header overlay-header">
           <button type="button" className="room-scan-back" onClick={restartScan} aria-label="스캔 취소">×</button>
           <span>{scanMode === 'camera' ? '카메라 스캔' : '데모 스캔'}</span>
@@ -220,12 +242,12 @@ export default function RoomScan({ onCreate, onBack }) {
             <button type="button" className="scan-skip" onClick={finishScan}>건너뛰기</button>
           </div>
         </section>
-      </main>
+      </div>
     )
   }
 
   return (
-    <main className="room-scan-page result-page">
+    <div className="room-scan-page result-page" ref={pageRef}>
       <header className="room-scan-header">
         <button type="button" className="room-scan-back" onClick={restartScan} aria-label="다시 스캔하기">←</button>
         <span>공간 분석 결과</span>
@@ -273,6 +295,6 @@ export default function RoomScan({ onCreate, onBack }) {
           <button type="button" className="scan-button secondary" onClick={restartScan}>다시 스캔하기</button>
         </div>
       </section>
-    </main>
+    </div>
   )
 }
